@@ -16,15 +16,19 @@ function App() {
     quiz_avg: 75
   })
 
-  const [isRealtimeMode, setIsRealtimeMode] = useState(false)
+  const [activeTab, setActiveTab]           = useState('single')
+  const [batchFile, setBatchFile]           = useState(null)
+  const [batchData, setBatchData]           = useState(null)
   const [viewState, setViewState]           = useState('placeholder')
   const [loaderInfo, setLoaderInfo]         = useState({ progress: 0, text: 'Consulting AI Model...', sub: 'Connecting to Flask backend' })
   const [predictionData, setPredictionData] = useState(null)
 
   const radarChartRef      = useRef(null)
   const importanceChartRef = useRef(null)
+  const batchChartRef      = useRef(null)
   const radarChartInstance = useRef(null)
   const importanceInstance = useRef(null)
+  const batchChartInstance = useRef(null)
   const debounceTimer      = useRef(null)
 
   useEffect(() => {
@@ -44,15 +48,8 @@ function App() {
   const handleInputChange = (e) => {
     const { name, value, type } = e.target
     setFormData(prev => {
-      const next = { ...prev, [name]: type === 'range' ? parseFloat(value) : value }
-      if (isRealtimeMode) debouncedPredict(next)
-      return next
+      return { ...prev, [name]: type === 'range' ? parseFloat(value) : value }
     })
-  }
-
-  const debouncedPredict = (data) => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current)
-    debounceTimer.current = setTimeout(() => runPrediction(data, true), 200)
   }
 
   const animateLoader = (duration) =>
@@ -103,24 +100,97 @@ function App() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (isRealtimeMode) return
     setViewState('loader')
     await animateLoader(1000)
     await runPrediction(formData)
   }
 
-  const handleRealtimeToggle = (e) => {
-    const on = e.target.checked
-    setIsRealtimeMode(on)
-    if (on) runPrediction(formData, true)
+  const handleBatchSubmit = async (e) => {
+    e.preventDefault()
+    if (!batchFile) {
+      alert("Please select a CSV file first.")
+      return
+    }
+    setViewState('loader')
+    await animateLoader(1500)
+    
+    const fd = new FormData()
+    fd.append('file', batchFile)
+
+    try {
+      const res = await fetch(`${API_BASE}/predict-batch`, {
+        method: 'POST',
+        body: fd
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        alert(`Error: ${err.error || 'Batch prediction failed'}`)
+        setViewState('placeholder')
+        return
+      }
+      setBatchData(await res.json())
+      setViewState('batch-results')
+    } catch (e) {
+      console.error('Batch Prediction error:', e)
+      alert('Cannot reach Flask backend.')
+      setViewState('placeholder')
+    }
+  }
+
+  const handleDownloadTemplate = () => {
+    const csvContent = "data:text/csv;charset=utf-8,Student_ID,Attendance (%),Study_Hours_per_Week,Assignments_Avg,Midterm_Score,Quizzes_Avg\nS001,80,15,75,75,75"
+    const encodedUri = encodeURI(csvContent)
+    const link = document.createElement("a")
+    link.setAttribute("href", encodedUri)
+    link.setAttribute("download", "EduPredict_Batch_Template.csv")
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   useEffect(() => {
     if (viewState === 'results' && predictionData) {
       drawRadarChart()
       if (modelMeta?.feature_importances) drawImportanceChart()
+    } else if (viewState === 'batch-results' && batchData) {
+      drawBatchChart()
     }
-  }, [viewState, predictionData, modelMeta, formData])
+  }, [viewState, predictionData, modelMeta, formData, batchData])
+
+  const drawBatchChart = () => {
+    if (!batchChartRef.current) return
+    const ctx = batchChartRef.current.getContext('2d')
+    
+    batchChartInstance.current?.destroy()
+    batchChartInstance.current = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Excellent', 'Good', 'Average', 'Poor'],
+        datasets: [{
+          data: [
+            batchData.summary.Excellent,
+            batchData.summary.Good,
+            batchData.summary.Average,
+            batchData.summary.Poor
+          ],
+          backgroundColor: [
+            '#065758',
+            '#628d3d',
+            '#c49a60',
+            '#c46960'
+          ],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom' }
+        }
+      }
+    })
+  }
 
   const drawRadarChart = () => {
     if (!radarChartRef.current) return
@@ -288,11 +358,28 @@ function App() {
 
         <main className="dashboard-grid">
           <section className="card input-card">
-            <div className="card-header">
-              <i className="ri-equalizer-line text-purple"></i>
-              <h2>Student Parameters</h2>
+            <div className="card-header" style={{flexDirection: 'column', alignItems: 'stretch', gap: '1rem'}}>
+              <div style={{display: 'flex', alignItems: 'center', gap: '0.75rem'}}>
+                <i className="ri-equalizer-line text-purple"></i>
+                <h2>Student Parameters</h2>
+              </div>
+              <div className="tabs-container">
+                <button 
+                  className={`tab-btn ${activeTab === 'single' ? 'active' : ''}`}
+                  onClick={() => { setActiveTab('single'); setViewState(predictionData ? 'results' : 'placeholder'); }}
+                >
+                  <i className="ri-user-line"></i> Single Student
+                </button>
+                <button 
+                  className={`tab-btn ${activeTab === 'batch' ? 'active' : ''}`}
+                  onClick={() => { setActiveTab('batch'); setViewState(batchData ? 'batch-results' : 'placeholder'); }}
+                >
+                  <i className="ri-group-line"></i> Batch Prediction
+                </button>
+              </div>
             </div>
 
+            {activeTab === 'single' ? (
             <form id="prediction-form" className="prediction-form" onSubmit={handleSubmit}>
 
               <div className="form-group">
@@ -355,23 +442,35 @@ function App() {
                 <div className="slider-ticks"><span>0</span><span>50</span><span>100</span></div>
               </div>
 
-              {!isRealtimeMode && (
-                <button type="submit" className="btn btn-primary" id="predict-btn">
+              <button type="submit" className="btn btn-primary" id="predict-btn">
+                <i className="ri-terminal-window-line"></i>
+                <span>Generate Analytics</span>
+                <div className="btn-glow"></div>
+              </button>
+            </form>
+            ) : (
+              <form className="prediction-form" onSubmit={handleBatchSubmit}>
+                <div className="upload-container">
+                  <div className="upload-box">
+                    <i className="ri-upload-cloud-2-line" style={{fontSize: '3rem', color: 'var(--accent-glow)'}}></i>
+                    <h4>Upload Class Data</h4>
+                    <p style={{fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem'}}>Upload a CSV containing student information and the required performance features.</p>
+                    <input type="file" accept=".csv" onChange={e => setBatchFile(e.target.files[0])} />
+                  </div>
+                  {batchFile && <p className="file-name"><i className="ri-file-text-line"></i> {batchFile.name}</p>}
+                </div>
+                
+                <button type="button" className="btn btn-outline" onClick={handleDownloadTemplate} style={{marginTop: '0.5rem'}}>
+                  <i className="ri-download-line"></i> Download CSV Template
+                </button>
+
+                <button type="submit" className="btn btn-primary" style={{marginTop: '0.5rem'}}>
                   <i className="ri-terminal-window-line"></i>
-                  <span>Generate Analytics</span>
+                  <span>Analyze Class</span>
                   <div className="btn-glow"></div>
                 </button>
-              )}
-
-              <div className="simulator-toggle-container">
-                <i className="ri-flashlight-line"></i>
-                <span className="toggle-text">Enable What-If Sandbox (Real-Time Updates)</span>
-                <label className="switch">
-                  <input type="checkbox" id="realtime-toggle" checked={isRealtimeMode} onChange={handleRealtimeToggle} />
-                  <span className="switch-slider"></span>
-                </label>
-              </div>
-            </form>
+              </form>
+            )}
           </section>
 
           <section className="insights-container">
@@ -383,7 +482,7 @@ function App() {
                     <div className="pulse-ring"></div>
                   </div>
                   <h3>Awaiting Predictive Metrics</h3>
-                  <p>Configure student parameters on the left and click <strong>Generate Analytics</strong>, or activate the <strong>What-If Sandbox</strong> for instant feedback.</p>
+                  <p>Configure student parameters on the left and click <strong>Generate Analytics</strong> to get detailed feedback.</p>
                   <div className="feature-bullets">
                     <div className="bullet-item"><i className="ri-sparkling-2-line"></i> AI Random Forest Decision trees</div>
                     <div className="bullet-item"><i className="ri-git-branch-line"></i> Feature Contribution Weighting</div>
@@ -478,6 +577,67 @@ function App() {
                       ))
                     )}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {viewState === 'batch-results' && batchData && (
+              <div className="results-dashboard">
+                <div className="results-row-1" style={{gridTemplateColumns: '1fr 1fr'}}>
+                  <div className="card prediction-card">
+                    <div className="card-header-compact">
+                      <span className="label-muted">CLASS SUMMARY</span>
+                      <i className="ri-group-line header-icon"></i>
+                    </div>
+                    <div className="class-summary-stats" style={{marginTop: '0.5rem'}}>
+                      <div className="stat-row"><span>Total Students:</span> <strong>{batchData.summary.Total}</strong></div>
+                      <div className="stat-row" style={{color: 'var(--excellent)'}}><span>Excellent:</span> <strong>{batchData.summary.Excellent}</strong></div>
+                      <div className="stat-row" style={{color: 'var(--average)'}}><span>Good:</span> <strong>{batchData.summary.Good}</strong></div>
+                      <div className="stat-row" style={{color: '#c49a60'}}><span>Average:</span> <strong>{batchData.summary.Average}</strong></div>
+                      <div className="stat-row" style={{color: 'var(--needs-improvement)'}}><span>Poor:</span> <strong>{batchData.summary.Poor}</strong></div>
+                      
+                      <div className="stat-highlight" style={{marginTop: '1rem', padding: '0.5rem', background: 'rgba(196,105,96,0.1)', borderRadius: '8px', color: 'var(--needs-improvement)'}}>
+                        <i className="ri-alert-line"></i> <strong>Students Needing Attention: {batchData.summary['Needing Attention']}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="card chart-card">
+                    <div className="card-header-compact">
+                      <span className="label-muted">CLASS DISTRIBUTION</span>
+                    </div>
+                    <div className="chart-container" style={{height: '200px'}}>
+                      <canvas ref={batchChartRef}></canvas>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="card" style={{marginTop: '1rem', overflowX: 'auto', padding: '1.5rem'}}>
+                  <div className="card-header-compact" style={{marginBottom: '1rem'}}>
+                    <span className="label-muted">DETAILED RESULTS</span>
+                  </div>
+                  <table className="batch-results-table">
+                    <thead>
+                      <tr>
+                        <th>Student ID</th>
+                        <th>Predicted Performance</th>
+                        <th>Top Recommendation</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {batchData.results.map((r, i) => (
+                        <tr key={i}>
+                          <td><strong>{r.Student_ID}</strong></td>
+                          <td>
+                            <span className={`badge ${r.Prediction === 'Excellent' || r.Prediction === 'Good' ? 'badge-success' : r.Prediction === 'Average' ? 'badge-warning' : 'badge-danger'}`} style={{display: 'inline-flex', width: 'max-content'}}>
+                              {r.Prediction}
+                            </span>
+                          </td>
+                          <td style={{fontSize: '0.85rem', color: 'var(--text-secondary)'}}>{r.Recommendation.text}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
