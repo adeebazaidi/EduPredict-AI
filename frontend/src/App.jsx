@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import Chart from 'chart.js/auto'
 import './index.css'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000'
+const API_BASE = import.meta.env.PROD ? 'https://edupredict-ai-tvp5.onrender.com' : 'http://127.0.0.1:5000'
 
 function App() {
   const [modelMeta, setModelMeta]       = useState(null)

@@ -2,6 +2,10 @@
 
 **EduPredict AI** is a machine learning-powered analytics dashboard designed to predict student performance outcomes (Excellent, Satisfactory, or Needs Improvement) based on behavioral and academic inputs using a Random Forest Classifier. It provides real-time confidence scores and actionable suggestions.
 
+## Live Demo
+- **Frontend / Dashboard**: [https://edu-predict-ai-rho.vercel.app/](https://edu-predict-ai-rho.vercel.app/)
+- **Backend API**: [https://edupredict-ai-tvp5.onrender.com](https://edupredict-ai-tvp5.onrender.com)
+
 ## Technology Stack
 - **Backend**: Python, Flask, Scikit-Learn
 - **Frontend**: React, Vite, Chart.js
